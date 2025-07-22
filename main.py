@@ -2,20 +2,34 @@ import mimetypes
 import pathlib
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
+import socket
+from pymongo import MongoClient
+from pymongo.server_api import ServerApi
+from multiprocessing import Process
+import logging
+from datetime import datetime
+
+
+uri = "mongodb://mongodb:27017"
 
 HTTPServer_IP = '127.0.0.1'
 HTTPServer_PORT = 3000
+
 UDP_IP='127.0.0.1'
 UDP_PORT = 5000
+
+
+def send_data_to_socket(data):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server = UDP_IP, UDP_PORT
+    sock.connect(server)
+    sock.send(data)
+
 
 class HttpHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         data = self.rfile.read(int(self.headers['Content-Length']))
-        print(data)
-        data_parse = urllib.parse.unquote_plus(data.decode())
-        print(data_parse)
-        data_dict = {key: value for key, value in [el.split('=') for el in data_parse.split('&')]}
-        print(data_dict)
+        send_data_to_socket(data)
         self.send_response(302)
         self.send_header('Location', '/')
         self.end_headers()
@@ -51,15 +65,54 @@ class HttpHandler(BaseHTTPRequestHandler):
             self.wfile.write(file.read())
 
 
-def run(server_class=HTTPServer, handler_class=HttpHandler):
+def run_http_server(server_class=HTTPServer, handler_class=HttpHandler):
     server_address = (HTTPServer_IP, HTTPServer_PORT)
     http = server_class(server_address, handler_class)
     try:
-        http.serve_forever()
+        logging.info(f'HTTPServer started at http://{HTTPServer_IP}:{HTTPServer_PORT}/')
         print(f'HTTPServer started at http://{HTTPServer_IP}:{HTTPServer_PORT}/')
-    except KeyboardInterrupt:
+        http.serve_forever()
+    except Exception as e:
         http.server_close()
+        logging.error(f"{e}")
+
+
+def save_data(data):
+    with MongoClient(uri, server_api=ServerApi('1')) as client:
+        db = client.book
+
+        data_parse = urllib.parse.unquote_plus(data.decode())
+        data_dict = {key: value for key, value in [el.split('=') for el in data_parse.split('&')]}
+        document = {
+            "date": str(datetime.now()),
+            "username": data_dict["username"],
+            "message": data_dict["message"]
+        }
+        # print(document)
+        result = db.cats.insert_one(document)
+        logging.info(result)
+
+    
+def run_socket_server():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server = UDP_IP, UDP_PORT
+    sock.bind(server)
+    logging.info(f'Socket Server started at {UDP_IP}:{UDP_PORT}')
+    try:
+        while True:
+            data, address = sock.recvfrom(1024)
+            save_data(data)
+    except KeyboardInterrupt as e:
+        logging.error(f"{e}")
+    finally:
+        sock.close()
 
 
 if __name__ == '__main__':
-    run()
+    logging.basicConfig(level=logging.INFO, format='%(processName)s %(message)s')
+
+    http_server_process = Process(target=run_http_server)
+    http_server_process.start()
+
+    socket_server_process = Process(target=run_socket_server)
+    socket_server_process.start()
