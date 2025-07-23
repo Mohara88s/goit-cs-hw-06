@@ -10,9 +10,9 @@ import logging
 from datetime import datetime
 
 
-uri = "mongodb://mongodb:27017"
+uri = "mongodb://mongodb_service:27017"
 
-HTTPServer_IP = '127.0.0.1'
+HTTPServer_IP = ''
 HTTPServer_PORT = 3000
 
 UDP_IP='127.0.0.1'
@@ -89,7 +89,7 @@ def save_data(data):
             "message": data_dict["message"]
         }
         # print(document)
-        result = db.cats.insert_one(document)
+        result = db.messages.insert_one(document)
         logging.info(result)
 
     
@@ -100,7 +100,7 @@ def run_socket_server():
     logging.info(f'Socket Server started at {UDP_IP}:{UDP_PORT}')
     try:
         while True:
-            data, address = sock.recvfrom(1024)
+            data, address = sock.recvfrom(65535)
             save_data(data)
     except KeyboardInterrupt as e:
         logging.error(f"{e}")
